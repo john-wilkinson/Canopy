@@ -25,3 +25,11 @@ class AuthHelper(object):
                 store = config_source
         if store:
             store.add_config_setting('http-basic.'+origin_url, self._io.get_authentication(origin_url))
+
+
+class Filesystem(object):
+    pass
+
+
+class Silencer(object):
+    pass

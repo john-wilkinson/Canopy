@@ -7,6 +7,13 @@ from downloader import DownloadManager
 from dispatcher import EventDispatcher
 from autoload import AutoloadGenerator
 from config import ConfigSourceInterface
+from util import Filesystem
+from util import Silencer
+from io import IOInterface
+
+from shutil import copyfile
+from datetime import datetime
+from random import randint
 import re
 import os
 
@@ -274,4 +281,129 @@ class Config:
         }
 
         for key in self.config:
+            all['config'][key] = self.get(key, flags)
 
+        return all
+
+    def raw(self):
+        return {
+            'repositories': self.repositories,
+            'config': self.config
+        }
+
+    def has(self, key):
+        return key in self.config
+
+    def process(self, value, flags):
+
+        if isinstance(value, basestring):
+            regex = r'#\{\$(.+)\}#'
+
+            def replace(match):
+                return self.config.get(match.group(1), flags)
+
+            value = re.sub(regex, replace, value)
+        return value
+
+    def realpath(self, path):
+        # first check against a regex
+        regex = r'{^(?:/|[a-z]:|[a-z0-9.]+://)}i'
+        if re.match(regex, path):
+            return path
+
+        return self.baseDir + '/' + path
+
+    def getComposerEnv(self, var):
+        if self.useEnvironment:
+            return os.environ[var]
+        return False
+
+
+class Cache(object):
+    def __init__(self, io, cache_dir, whitelist='a-z0-9', filesystem=None):
+        self.__io = io
+        self.__root = cache_dir.rstrip('/')
+        self.__whitelist = whitelist
+        self.__filesystem = filesystem or Filesystem()
+        self.__enabled = True
+
+        if not (os.isdir(self.__root)
+            or Silencer.call('mkdir', self.__root, 0777, True))\
+            and not os.access(self.__root, os.W_OK):
+            self.io.write_error('<warning>Cannot create cache directory {}, or directory is not writable. Proceeding without cache</warning>'.format(self.__root))
+            self.__enabled = False
+
+    @property
+    def is_enabled(self):
+        return self.__enabled
+
+    @property
+    def root(self):
+        return self.__root
+
+    def read(self, file):
+        file = self.__clean_filename(file)
+
+        if self.is_enabled and os.path.isfile(file):
+            self.__io.write_error('Reading {}{} from cache'.format(self.__root, file), True, IOInterface.DEBUG)
+
+        with open(self.__root + file, 'r') as f:
+            return f.read()
+
+    def write(self, file, contents):
+        file = self.__clean_filename(file)
+
+        self.__io.write_error('Writing {}{} into cache', True, IOInterface.DEBUG)
+        try:
+            with open(file, 'w') as f:
+                f.write(contents)
+        except IOError as e:
+            self.__io.write_error('<warning>Failed to write to cache: {}</warning>'.format(e.message), True, IOInterface.DEBUG)
+
+            # TODO: need to remove any partially written file...
+            raise e
+
+    def copy_from(self, file, source):
+        if self.is_enabled:
+            file = self.__clean_filename(file)
+            self.__filesystem.ensure_directory_exists(self.root+file)
+
+            if not os.path.isfile(source):
+                self.__io.write_error('<error>{} does not exist, cannot write to cache</error>'.format(source))
+            self.__io.write_debug('Writing {}{} to cache from {}'.format(self.root, file, source))
+
+            return copyfile(source, self.root + file)
+        return False
+
+    def copy_to(self, file, target):
+        file = self.__clean_filename(file)
+        if self.is_enabled and os.path.isfile(self.root + file):
+            try:
+                self.touch(self.root + file, datetime.now())
+            except IOError:
+                self.touch(self.root + file)
+
+            self.io.write_debug('Reading {}{} from cache'.format(self.root, file))
+            return copyfile(self.root + file, target)
+        return False
+
+    def gc_is_necessary(self):
+        return not self.cache_collected and randint(0, 50)
+
+    def remove(self, file):
+        file = self.__clean_filename()
+        if self.is_enabled and os.path.isfile(self.root + file):
+            return os.remove(file)
+        return False
+
+    # TODO: finish out
+    def gc(self, ttl, max_size):
+        if self.is_enabled:
+            expire = datetime()
+
+    def touch(self, file, times=None):
+        with open(file, 'a'):
+            os.utime(file, times)
+
+    def __clean_filename(self, file):
+        return re.sub(r'{[^'+self.whitelist+']}i', '-', file)

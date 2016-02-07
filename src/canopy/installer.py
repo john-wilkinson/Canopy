@@ -1,0 +1,2 @@
+class InstallationManager:
+    pass

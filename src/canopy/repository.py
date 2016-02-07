@@ -1,0 +1,2 @@
+class RepositoryManager:
+    pass

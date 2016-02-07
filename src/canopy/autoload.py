@@ -1,0 +1,2 @@
+class AutoloadGenerator:
+    pass

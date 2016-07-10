@@ -208,7 +208,7 @@ class Config:
 
     def get(self, key="", flags = 0):
         if key in [
-            'vendor-dir',
+            'my_vendor-dir',
             'bin-dir',
             'process-timeout',
             'data-dir',
